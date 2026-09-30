@@ -1,0 +1,38 @@
+# Sobe com:  docker compose up -d
+# Logs:      docker compose logs -f
+# Atualizar: docker compose up -d --build
+services:
+  criptoguard:
+    build: .
+    container_name: criptoguard
+    restart: unless-stopped          # volta sozinho se cair ou se o servidor reiniciar
+    # O .env fica fora do container: a página /chaves grava nele e o sistema reinicia já com as chaves novas
+    environment:
+      DATA_DIR: /data
+      REQUIRE_PASSWORD: "true"       # não sobe sem senha no painel
+      AUTO_START: "true"             # robô liga junto com o container
+    volumes:
+      - ./dados:/data                # banco, histórico e cache ficam fora do container
+      - ./backend/.env:/app/backend/.env
+    ports:
+      - "8000:8000"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # HTTPS automático com domínio próprio (opcional).
+  # Ative com: docker compose --profile https up -d
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [criptoguard]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMINIO: ${DOMINIO:-exemplo.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  caddy_data:
