@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useEffect, useState } from 'react'
 import {
-  REGIME_COR, REGIME_TXT, api, day, dt, money, pct,
-  type BacktestResult, type Config, type LogRow, type OperacaoBT, type Params, type Status, type TradeRow,
+  REGIME_COR, REGIME_TXT, api, day, money, pct,
+  type BacktestResult, type Config, type OperacaoBT, type Params,
   type WFIn, type WFResult,
 } from './api'
-import { EquityChart, MonteCarloView, ParamsForm, Tile, tooltipStyle } from './ui'
+import { EquityChart, MonteCarloView, ParamsForm, Tile } from './ui'
+import Painel from './Painel'
 
-type Aba = 'backtest' | 'wf' | 'robo'
+type Aba = 'painel' | 'backtest' | 'wf'
 
 const DEFAULTS: Params = {
   symbol: 'BTC/USDT', timeframe: '1d', since: '2020-01-01', until: '', initial: 1000,
@@ -27,32 +27,44 @@ function fromConfig(cfg: Config | null): Partial<Params> {
 }
 
 export default function App() {
-  const [aba, setAba] = useState<Aba>('backtest')
+  const [aba, setAba] = useState<Aba>('painel')
   const [cfg, setCfg] = useState<Config | null>(null)
   useEffect(() => { api.config().then(setCfg).catch(() => setCfg(null)) }, [])
 
   return (
     <div className="app">
-      <header>
-        <div className="brand">
-          <span className="logo">◆</span>
+      <header className="topo">
+        <div className="marca">
+          <span className="logo" aria-hidden>
+            <svg viewBox="0 0 32 32" width="34" height="34"><path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7L16 2Z" fill="var(--marca)" /><path d="m10 17 4 4 8-9" stroke="var(--fundo)" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </span>
           <div>
             <h1>CriptoGuard</h1>
-            <small>{cfg ? `${cfg.exchange} · ${cfg.symbol} · ${cfg.timeframe}` : 'API desconectada. Rode o backend na porta 8000.'}</small>
+            <small>{cfg ? `Robô de ${(cfg.symbols ?? [cfg.symbol]).map(s => s.split('/')[0]).join(' e ')} · gráfico de ${cfg.timeframe}` : 'Sem conexão com o robô'}</small>
           </div>
         </div>
-        {cfg && <span className={`badge ${cfg.mode === 'live' ? 'danger' : 'ok'}`}>
-          {cfg.mode === 'live' ? `DINHEIRO REAL${cfg.testnet ? ' (testnet)' : ''}` : 'SIMULAÇÃO'}
-        </span>}
+        <nav className="abas" aria-label="Seções">
+          <button className={aba === 'painel' ? 'on' : ''} onClick={() => setAba('painel')}>Painel</button>
+          <button className={aba === 'backtest' || aba === 'wf' ? 'on' : ''} onClick={() => setAba('backtest')}>Laboratório</button>
+        </nav>
       </header>
-      <nav>
-        <button className={aba === 'backtest' ? 'on' : ''} onClick={() => setAba('backtest')}>1. Backtest</button>
-        <button className={aba === 'wf' ? 'on' : ''} onClick={() => setAba('wf')}>2. Walk-forward</button>
-        <button className={aba === 'robo' ? 'on' : ''} onClick={() => setAba('robo')}>3. Robô</button>
-      </nav>
-      <div hidden={aba !== 'backtest'}><Backtest cfg={cfg} /></div>
-      <div hidden={aba !== 'wf'}><WalkForward cfg={cfg} /></div>
-      {aba === 'robo' && <Robo />}
+      {aba === 'painel' && <Painel cfg={cfg} />}
+      {(aba === 'backtest' || aba === 'wf') && (
+        <div className="lab">
+          <div className="lab-topo">
+            <div>
+              <h2>Laboratório</h2>
+              <p className="muted">Teste a estratégia no passado antes de confiar nela. Nada aqui mexe no robô que está rodando.</p>
+            </div>
+            <div className="segmento">
+              <button className={aba === 'backtest' ? 'on' : ''} onClick={() => setAba('backtest')}>Teste no passado</button>
+              <button className={aba === 'wf' ? 'on' : ''} onClick={() => setAba('wf')}>Teste rigoroso</button>
+            </div>
+          </div>
+          <div hidden={aba !== 'backtest'}><Backtest cfg={cfg} /></div>
+          <div hidden={aba !== 'wf'}><WalkForward cfg={cfg} /></div>
+        </div>
+      )}
       <footer>Ferramenta de estudo. Resultado passado não garante resultado futuro. Só opere com dinheiro que você aceita perder.</footer>
     </div>
   )
@@ -261,108 +273,6 @@ function WalkForward({ cfg }: { cfg: Config | null }) {
         </div>
         <MonteCarloView mc={res.monte_carlo} />
       </>}
-    </section>
-  )
-}
-
-/* ============================ ROBÔ ============================ */
-function Robo() {
-  const [st, setSt] = useState<Status | null>(null)
-  const [trades, setTrades] = useState<TradeRow[]>([])
-  const [eq, setEq] = useState<{ time: string; value: number }[]>([])
-  const [logs, setLogs] = useState<LogRow[]>([])
-  const [erro, setErro] = useState('')
-
-  const load = useCallback(async () => {
-    try {
-      const [s, t, e, l] = await Promise.all([api.status(), api.trades(), api.equity(), api.logs()])
-      setSt(s); setTrades(t); setEq(e); setLogs(l); setErro('')
-    } catch (e) { setErro((e as Error).message) }
-  }, [])
-  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id) }, [load])
-
-  async function act(fn: () => Promise<unknown>, confirmMsg?: string) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return
-    try { await fn(); await load() } catch (e) { setErro((e as Error).message) }
-  }
-
-  const price = st?.last_price ?? 0
-  const pos = st?.position
-  const aberto = pos && price ? (price - pos.entry_price) * pos.qty : 0
-  const bal = st?.paper_balance
-  const patrimonio = bal ? bal.quote + bal.base * price : null
-  const mk = st?.market
-
-  return (
-    <section>
-      {erro && <div className="alert">{erro}</div>}
-      <div className="card controls">
-        <div>
-          <span className={`dot ${st?.running ? 'on' : ''}`} />
-          <strong>{st?.running ? 'Robô rodando' : 'Robô parado'}</strong>
-          {st?.last_tick && <small> · última checagem {dt(st.last_tick)}</small>}
-        </div>
-        <div className="actions">
-          {st?.running
-            ? <button onClick={() => act(api.stop)}>Pausar</button>
-            : <button className="primary" onClick={() => act(api.start)}>Iniciar</button>}
-          {st?.mode === 'paper' && !st.running &&
-            <button onClick={() => act(api.resetPaper, 'Zerar a simulação e apagar o histórico?')}>Zerar simulação</button>}
-          <button className="panic" onClick={() => act(api.panic, 'Parar o robô e VENDER a posição agora?')}>BOTÃO DE PÂNICO</button>
-        </div>
-      </div>
-      {st?.last_error && <div className="alert">Último erro: {st.last_error}</div>}
-      {st?.guard?.locked && <div className="alert">Trava mensal ativa. O robô não compra até o próximo mês.</div>}
-
-      <div className="tiles">
-        <div className="tile">
-          <span>Regime atual</span>
-          <strong style={{ color: REGIME_COR[mk?.regime ?? ''] }}>{mk ? mk.regime : '-'}</strong>
-          <small>{mk ? REGIME_TXT[mk.regime] ?? '' : 'aparece após a 1a checagem'}
-            {mk?.adx != null && ` · ADX ${mk.adx}`}{mk && ` · RSI ${mk.rsi}`}</small>
-        </div>
-        <Tile label="Preço atual" value={price ? money(price) : '-'} />
-        {patrimonio !== null && <Tile label="Patrimônio simulado" value={money(patrimonio)} />}
-        {bal && <Tile label="Saldo livre" value={money(bal.quote)} sub={`moeda: ${bal.base.toFixed(6)}`} />}
-        <Tile label="Posição" value={pos ? pos.qty.toFixed(6) : 'Fora do mercado'}
-          sub={pos ? `${pos.strategy ?? ''} · entrada ${money(pos.entry_price)} · stop ${money(pos.stop)}` : undefined} />
-        {pos && <Tile label="Resultado aberto" value={money(aberto)} tone={aberto} />}
-      </div>
-
-      {eq.length > 1 && <div className="card">
-        <h3>Patrimônio</h3>
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={eq}>
-            <CartesianGrid stroke="var(--grid)" strokeDasharray="3 3" />
-            <XAxis dataKey="time" tickFormatter={dt} minTickGap={80} stroke="var(--muted)" fontSize={12} />
-            <YAxis domain={['auto', 'auto']} stroke="var(--muted)" fontSize={12} tickFormatter={v => money(v)} width={80} />
-            <Tooltip labelFormatter={l => dt(String(l))} formatter={v => money(Number(v))} contentStyle={tooltipStyle} />
-            <Line dataKey="value" name="Patrimônio" stroke="var(--accent)" dot={false} strokeWidth={2} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>}
-
-      <div className="grid2">
-        <div className="card">
-          <h3>Operações</h3>
-          {trades.length === 0 ? <p className="muted">Nenhuma operação ainda. O robô espera o próximo sinal.</p> :
-            <div className="table"><table>
-              <thead><tr><th>Quando</th><th>Lado</th><th>Preço</th><th>Qtd</th><th>Resultado</th><th>Motivo</th></tr></thead>
-              <tbody>{trades.map(t => (
-                <tr key={t.id}>
-                  <td>{dt(t.time)}</td><td className={t.side === 'compra' ? 'pos' : 'neg'}>{t.side}</td>
-                  <td>{money(t.price)}</td><td>{t.qty.toFixed(6)}</td>
-                  <td className={(t.pnl ?? 0) >= 0 ? 'pos' : 'neg'}>{t.pnl === null ? '-' : money(t.pnl)}</td>
-                  <td>{t.reason}</td>
-                </tr>))}</tbody>
-            </table></div>}
-        </div>
-        <div className="card">
-          <h3>Registro</h3>
-          <ul className="logs">{logs.map((l, i) => (
-            <li key={i} className={l.level}><time>{dt(l.time)}</time>{l.msg}</li>))}</ul>
-        </div>
-      </div>
     </section>
   )
 }

@@ -57,20 +57,23 @@ export interface WFResult {
   }
   janelas: Janela[]; curva: PontoCurva[]; operacoes: OperacaoBT[]; monte_carlo: MonteCarlo
 }
+export interface Posicao {
+  qty: number; entry_price: number; stop: number; entry_time: string; peak?: number; strategy?: string; stop_order_id?: string
+}
+export interface Mercado { regime: string; candle: string; price?: number; adx: number | null; rsi: number }
+export interface Moeda { symbol: string; position: Posicao | null; market: Mercado | null; last_error: string }
+export interface Carteira { quote: number; assets: Record<string, number>; equity: number | null; prices: Record<string, number> }
 export interface Status {
-  running: boolean; mode: string; symbol: string
-  position: { qty: number; entry_price: number; stop: number; entry_time: string; strategy?: string } | null
-  paper_balance: { quote: number; base: number } | null
-  last_price: number | null
+  running: boolean; mode: string; testnet: boolean; timeframe: string; symbols: string[]
+  coins: Moeda[]; wallet: Carteira | null
   guard: { month: string; start_equity: number; locked: boolean } | null
-  market: { regime: string; candle: string; adx: number | null; rsi: number } | null
   last_error: string; last_tick: string
 }
 export interface Config {
-  exchange: string; symbol: string; timeframe: string; mode: string; live_allowed: boolean; testnet: boolean
+  exchange: string; symbol: string; symbols?: string[]; timeframe: string; mode: string; live_allowed: boolean; testnet: boolean
   params: Record<string, number | boolean>
 }
-export interface TradeRow { id: number; side: string; time: string; price: number; qty: number; fee: number; pnl: number | null; reason: string }
+export interface TradeRow { id: number; side: string; time: string; price: number; qty: number; fee: number; pnl: number | null; reason: string; symbol?: string }
 export interface LogRow { time: string; level: string; msg: string }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
