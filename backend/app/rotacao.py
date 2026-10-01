@@ -112,6 +112,7 @@ class RotacaoPortfolio:
     # ---------- ordens ----------
     def _cancelar_stop(self, c: dict, s: str) -> None:
         oid = c["stops"].pop(s, None)
+        (c.get("stop_px") or {}).pop(s, None)
         b = self.brokers[s]
         if oid and getattr(b, "exchange_stop", False):
             try:
@@ -169,10 +170,19 @@ class RotacaoPortfolio:
         b = self.brokers[s]
         if not self.p.stop or c["hold"].get(s, 0) <= 0 or not getattr(b, "exchange_stop", False):
             return
+        c.setdefault("stop_px", {})
+        c.setdefault("stop_tentativa", {})
+        c["stop_tentativa"][s] = now_iso()
         try:
             stop = c["entry"][s] * (1 - self.p.stop)
+            preco = b.price()
+            piso = b.stop_floor(preco) if hasattr(b, "stop_floor") else 0.0
+            if stop < piso:  # a corretora não aceita stop tão longe do preço atual
+                stop = piso
             c["stops"][s] = b.place_stop(c["hold"][s], stop)
-            self.log(f"[{s}] Stop de desastre registrado na corretora em {stop:.2f}.")
+            c["stop_px"][s] = stop
+            extra = " (o mais longe que a corretora aceita)" if stop == piso else ""
+            self.log(f"[{s}] Stop de desastre registrado na corretora em {stop:.2f}{extra}.")
         except Exception as e:  # noqa: BLE001
             self.log(f"[{s}] Não consegui registrar o stop na corretora: {e}", "warn")
 
@@ -208,6 +218,14 @@ class RotacaoPortfolio:
                     self.erros[s] = f"conferindo stop: {e}"
             elif self.p.stop and precos[s] <= c["entry"].get(s, 0) * (1 - self.p.stop):
                 self._vender(c, s, c["hold"][s], precos[s], "stop de desastre")
+
+        # posição sem stop na corretora: tenta de novo a cada 1 hora
+        for s in self.symbols:
+            b = self.brokers[s]
+            if c["hold"].get(s, 0) > 0 and s not in c["stops"] and self.p.stop and getattr(b, "exchange_stop", False):
+                ult = (c.get("stop_tentativa") or {}).get(s)
+                if not ult or (datetime.now(timezone.utc) - datetime.fromisoformat(ult)).total_seconds() > 3600:
+                    self._proteger(c, s)
 
         # patrimônio do robô
         equity = c["cash"] + sum(c["hold"].get(s, 0) * precos.get(s, 0) for s in self.symbols)
@@ -297,7 +315,8 @@ class RotacaoPortfolio:
             q = c["hold"].get(s, 0.0)
             pos = None
             if q > 0:
-                pos = {"qty": q, "entry_price": c["entry"].get(s, 0), "stop": c["entry"].get(s, 0) * (1 - self.p.stop),
+                pos = {"qty": q, "entry_price": c["entry"].get(s, 0),
+                       "stop": (c.get("stop_px") or {}).get(s) or c["entry"].get(s, 0) * (1 - self.p.stop),
                        "entry_time": c["entry_time"].get(s, ""), "strategy": "rotação", "stop_order_id": c["stops"].get(s)}
             self.store.set(f"position_{self.mode}_{slug(s)}", pos)
 

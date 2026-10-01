@@ -123,6 +123,15 @@ class LiveBroker:
         return self._fill(self.ex.create_market_sell_order(self.symbol, qty), qty, price, "sell")
 
     # ---------- stop dentro da corretora ----------
+    def stop_floor(self, price: float) -> float:
+        """Menor preço de stop que a corretora aceita (filtro PERCENT_PRICE_BY_SIDE ou PERCENT_PRICE)."""
+        for f in (self.market.get("info") or {}).get("filters") or []:
+            if f.get("filterType") == "PERCENT_PRICE_BY_SIDE":
+                return price * float(f.get("askMultiplierDown") or 0) * 1.02
+            if f.get("filterType") == "PERCENT_PRICE":
+                return price * float(f.get("multiplierDown") or 0) * 1.02
+        return 0.0
+
     def place_stop(self, qty: float, stop: float) -> str:
         qty = float(self.ex.amount_to_precision(self.symbol, qty))
         trigger = float(self.ex.price_to_precision(self.symbol, stop))
