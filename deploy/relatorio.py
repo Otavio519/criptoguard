@@ -2,7 +2,7 @@
 """Manda o resumo do CriptoGuard para o celular pelo app ntfy (grátis, sem cadastro).
 Uso: relatorio.py <tópico> [--resumo]
   sem --resumo: só avisa se houve compra/venda nova ou erro desde a última checagem
-  com --resumo: manda o resumo do dia (regime, posição, stop, saldo)"""
+  com --resumo: manda o resumo do dia (clima, posição, proteção, saldo)"""
 import base64, json, os, sys, urllib.request
 from pathlib import Path
 
@@ -57,18 +57,31 @@ def main():
         enviar(topico, "CriptoGuard com erro", erros[0]["msg"][:300], "high", "warning")
     ESTADO.write_text(json.dumps(estado))
     if resumo:
-        linhas = [f"Robô {'LIGADO' if st['running'] else 'DESLIGADO'} · modo {st['mode']}{' (teste)' if st.get('testnet') else ''}"]
-        for c in st["coins"]:
-            m, p = c.get("market") or {}, c.get("position")
-            linhas.append(f"{c['symbol']}: {m.get('regime', '?')} · preço {m.get('price', 0):,.2f} · ADX {m.get('adx', '?')}")
-            linhas.append(f"  posição: {'aberta, stop ' + format(p.get('stop', 0), ',.2f') if p else 'nenhuma'}")
-        w = st.get("wallet") or {}
-        if w.get("equity"):
-            linhas.append(f"Patrimônio: {w['equity']:,.2f} USDT")
-        hoje = [t for t in trades if str(t["time"])[:10] == __import__('datetime').date.today().isoformat()]
-        linhas.append(f"Operações hoje: {len(hoje)}")
-        enviar(topico, "CriptoGuard · resumo do dia", "\n".join(linhas))
+        enviar(topico, "CriptoGuard: resumo do dia", montar_resumo(st, trades))
 
+
+CLIMA = {"alta": "subindo", "baixa": "caindo", "lateral": "parado", "aquecendo": "juntando dados"}
+
+
+def montar_resumo(st, trades):
+    hoje = __import__("datetime").date.today().isoformat()
+    linhas = [f"Robô {'LIGADO' if st['running'] else 'DESLIGADO'}{' (modo teste, dinheiro fictício)' if st.get('testnet') else ''}", ""]
+    for c in st["coins"]:
+        m, p = c.get("market") or {}, c.get("position")
+        moeda, preco = c["symbol"].split("/")[0], float(m.get("price") or 0)
+        linhas.append(f"{moeda}: {CLIMA.get(m.get('regime'), m.get('regime', '?'))}, preço {preco:,.2f} USDT")
+        if p:
+            ent = float(p.get("entry_price") or 0)
+            var = (preco / ent - 1) * 100 if ent and preco else 0
+            linhas.append(f"  Você tem {float(p['qty']):.6f} {moeda}. Comprou a {ent:,.2f}. Agora {var:+.1f}%")
+            linhas.append(f"  Proteção vende se cair a {float(p.get('stop') or 0):,.2f}")
+        else:
+            linhas.append("  Sem compra nessa moeda")
+    w = st.get("wallet") or {}
+    if w.get("equity"):
+        linhas += ["", f"Patrimônio: {w['equity']:,.2f} USDT"]
+    linhas.append(f"Operações hoje: {len([t for t in trades if str(t['time'])[:10] == hoje])}")
+    return "\n".join(linhas)
 
 if __name__ == "__main__":
     main()
