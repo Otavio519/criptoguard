@@ -80,8 +80,30 @@ def _migrate_single_symbol_state(mode: str, symbol: str) -> None:
             store.set(f"{name}_{mode}", None)
 
 
-def get_bot() -> Portfolio:
+def get_bot():
     global _bot
+    if _bot is None and settings.strategy == "rotacao":
+        from .rotacao import RotacaoPortfolio, RotParams
+        data_ex = make_exchange(settings.exchange)
+        if settings.mode == "live":
+            if not settings.live_allowed:
+                raise HTTPException(400, "Modo live bloqueado. Confira API_KEY, API_SECRET e a frase "
+                                         f"LIVE_CONFIRM=\"{LIVE_PHRASE}\" no .env.")
+            trade_ex = make_exchange(settings.exchange, settings.api_key, settings.api_secret, settings.use_testnet)
+            brokers = [LiveBroker(trade_ex, s) for s in settings.symbols]
+        else:
+            brokers = [PaperBroker(data_ex, s, store, settings.paper_start_balance, settings.params.fee_rate)
+                       for s in settings.symbols]
+        p = RotParams(look=settings.rot_look, topk=settings.rot_topk, sma=settings.rot_sma, alvo_vol=settings.rot_vol,
+                      rebal_dias=settings.rot_rebal, stop=settings.rot_stop, trava=settings.rot_trava,
+                      capital=settings.rot_capital if settings.mode == "live" else settings.paper_start_balance)
+        if store.get(f"estrategia_{settings.mode}") != "rotacao":
+            # troca de estratégia: o gráfico de patrimônio começa do zero (o capital do robô é outro)
+            with store.lock, store.conn:
+                store.conn.execute("DELETE FROM equity WHERE mode=?", (settings.mode,))
+            store.set(f"estrategia_{settings.mode}", "rotacao")
+            store.log(f"Estratégia trocada para Rotação inteligente. Capital do robô: {p.capital:.2f} USDT.")
+        _bot = RotacaoPortfolio(brokers, data_ex, store, p)
     if _bot is None:
         symbols = settings.symbols
         data_ex = make_exchange(settings.exchange)
@@ -209,6 +231,10 @@ def config():
     return {"exchange": settings.exchange, "symbol": settings.symbols[0], "symbols": settings.symbols,
             "timeframe": settings.timeframe,
             "mode": settings.mode, "live_allowed": settings.live_allowed, "testnet": settings.use_testnet,
+            "strategy": settings.strategy,
+            "rot": {"look": settings.rot_look, "topk": settings.rot_topk, "sma": settings.rot_sma, "vol": settings.rot_vol,
+                    "rebal_dias": settings.rot_rebal, "stop": settings.rot_stop, "trava": settings.rot_trava,
+                    "capital": settings.rot_capital},
             "params": settings.params.__dict__}
 
 
@@ -226,13 +252,15 @@ def status():
     for sym in symbols:
         k = lambda name: f"{name}_{mode}_{slug(sym)}"  # noqa: E731
         bot = next((b for b in _bot.bots if b.symbol == sym), None) if _bot else None
+        erro = bot.last_error if bot else (getattr(_bot, "erros", {}).get(sym, "") if _bot else "")
         coins.append({"symbol": sym, "position": store.get(k("position")), "market": store.get(k("market")),
-                      "last_error": bot.last_error if bot else ""})
+                      "last_error": erro})
     return {
         "running": _bot.running if _bot else False,
         "mode": mode,
         "testnet": settings.use_testnet,
-        "timeframe": settings.timeframe,
+        "timeframe": "1d" if settings.strategy == "rotacao" else settings.timeframe,
+        "strategy": settings.strategy,
         "symbols": symbols,
         "coins": coins,
         "wallet": wallet,

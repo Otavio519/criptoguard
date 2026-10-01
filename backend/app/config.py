@@ -87,6 +87,16 @@ class Settings:
     panel_user: str = field(default_factory=lambda: os.getenv("PANEL_USER", ""))
     panel_password: str = field(default_factory=lambda: os.getenv("PANEL_PASSWORD", ""))
     auto_start: bool = field(default_factory=lambda: os.getenv("AUTO_START", "false").lower() == "true")
+    # Estratégia: "rotacao" (rotação inteligente, padrão novo) ou "tendencia" (a antiga, gráfico de 4h)
+    strategy: str = field(default_factory=lambda: os.getenv("STRATEGY", "tendencia").lower())
+    rot_capital: float = field(default_factory=lambda: _f("ROT_CAPITAL", 1000))
+    rot_look: int = field(default_factory=lambda: _i("ROT_LOOK", 30))
+    rot_topk: int = field(default_factory=lambda: _i("ROT_TOPK", 2))
+    rot_sma: int = field(default_factory=lambda: _i("ROT_SMA", 200))
+    rot_vol: float = field(default_factory=lambda: _f("ROT_VOL", 0.5))
+    rot_rebal: int = field(default_factory=lambda: _i("ROT_REBAL_DIAS", 7))
+    rot_stop: float = field(default_factory=lambda: _f("ROT_STOP", 0.25))
+    rot_trava: float = field(default_factory=lambda: _f("ROT_TRAVA", 0.10))
     params: StrategyParams = field(default_factory=lambda: StrategyParams(
         sma_fast=_i("SMA_FAST", 20),
         sma_slow=_i("SMA_SLOW", 50),

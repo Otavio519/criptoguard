@@ -94,3 +94,8 @@ def synthetic_ohlcv(days: int = 1500, seed: int = 42, start_price: float = 20000
     idx = pd.date_range("2021-01-01", periods=days, freq="D", tz="UTC", name="timestamp")
     return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close,
                          "volume": rng.uniform(100, 1000, days)}, index=idx)
+
+
+def fetch_recent(exchange, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
+    """Últimos `limit` candles (inclui o candle em andamento, quem chama filtra)."""
+    return _to_df(exchange.fetch_ohlcv(symbol, timeframe, limit=min(limit, 1000)))

@@ -40,7 +40,7 @@ export default function App() {
           </span>
           <div>
             <h1>CriptoGuard</h1>
-            <small>{cfg ? `Robô de ${(cfg.symbols ?? [cfg.symbol]).map(s => s.split('/')[0]).join(' e ')} · gráfico de ${cfg.timeframe}` : 'Sem conexão com o robô'}</small>
+            <small>{cfg ? `Robô de ${(cfg.symbols ?? [cfg.symbol]).map(s => s.split('/')[0]).join(' e ')} · ${cfg.strategy === 'rotacao' ? 'Rotação inteligente · gráfico diário' : `gráfico de ${cfg.timeframe}`}` : 'Sem conexão com o robô'}</small>
           </div>
         </div>
         <nav className="abas" aria-label="Seções">

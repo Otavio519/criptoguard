@@ -107,6 +107,7 @@ h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; letter-spacing: -.1px;
 .modo { padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; }
 .modo.teste { background: #1b2a4d; color: #9fbaff; }
 .modo.real { background: #4a1525; color: #ff9fb0; }
+.modo.estrategia { background: #0f3a2b; color: #7ff0c3; }
 .heroi-dir { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
 .rotulo { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--fraco); }
 .grande { font-size: clamp(28px, 4vw, 38px); font-weight: 700; letter-spacing: -1px; font-variant-numeric: tabular-nums; }

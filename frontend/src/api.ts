@@ -60,16 +60,18 @@ export interface WFResult {
 export interface Posicao {
   qty: number; entry_price: number; stop: number; entry_time: string; peak?: number; strategy?: string; stop_order_id?: string
 }
-export interface Mercado { regime: string; candle: string; price?: number; adx: number | null; rsi: number }
+export interface Mercado { regime: string; candle: string; price?: number; adx: number | null; rsi: number | null; mom?: number | null; vol?: number | null; media?: number | null; estrategia?: string }
 export interface Moeda { symbol: string; position: Posicao | null; market: Mercado | null; last_error: string }
 export interface Carteira { quote: number; assets: Record<string, number>; equity: number | null; prices: Record<string, number> }
 export interface Status {
-  running: boolean; mode: string; testnet: boolean; timeframe: string; symbols: string[]
+  running: boolean; mode: string; testnet: boolean; timeframe: string; symbols: string[]; strategy?: string
   coins: Moeda[]; wallet: Carteira | null
   guard: { month: string; start_equity: number; locked: boolean } | null
   last_error: string; last_tick: string
 }
 export interface Config {
+  strategy?: string
+  rot?: { look: number; topk: number; sma: number; vol: number; rebal_dias: number; stop: number; trava: number; capital: number }
   exchange: string; symbol: string; symbols?: string[]; timeframe: string; mode: string; live_allowed: boolean; testnet: boolean
   params: Record<string, number | boolean>
 }
