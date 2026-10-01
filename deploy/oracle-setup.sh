@@ -4,7 +4,7 @@ set -e
 T="${OCI_TENANCY:-$(grep -m1 '^tenancy' ~/.oci/config 2>/dev/null | cut -d= -f2)}"
 [ -n "$T" ] || T=$(oci iam compartment list --all --query 'data[0]."compartment-id"' --raw-output)
 echo "Conta: $T"
-[ -f ~/.ssh/cg ] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/cg -q
+[ -f ~/.ssh/cg ] || ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/cg -q
 curl -fsSL https://raw.githubusercontent.com/Otavio519/criptoguard/main/deploy/cloud-init.sh -o ~/cg-cloud-init.sh
 
 VCN=$(oci network vcn list -c "$T" --display-name cg-vcn --query 'data[0].id' --raw-output 2>/dev/null || true)
