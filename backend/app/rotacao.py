@@ -6,7 +6,8 @@ Regras (todas testadas no passado com simulação dia a dia, ver pesquisa):
   200 dias e com alta positiva. Fica com as 2 melhores (ou 1, ou nenhuma, aí fica em dólar).
 - O tamanho de cada compra diminui quando a moeda está muito agitada (alvo de 50% de volatilidade ao ano).
 - Saída diária: se uma moeda fechar o dia abaixo da média de 200 dias, vende no mesmo dia.
-- Stop de desastre registrado NA CORRETORA 25% abaixo do preço de entrada.
+- Stop de desastre registrado NA CORRETORA 25% abaixo do preço de entrada. Na testnet o robô vigia o stop
+  com o preço do mercado real (o livro da testnet é raso e dá agulhadas falsas).
 - Trava mensal: se o capital do robô cair 10% no mês, vende tudo e espera o mês seguinte.
 
 O robô só mexe no capital que é dele (ROT_CAPITAL). Moedas que já estavam na conta não são tocadas.
@@ -74,7 +75,11 @@ def escolher(inds: dict[str, dict], p: RotParams) -> dict[str, float]:
 class RotacaoPortfolio:
     """Mesma interface da carteira antiga (start/stop/panic/status), para o painel não precisar mudar."""
 
-    def __init__(self, brokers: list, data_ex, store: Store, p: RotParams, poll_seconds: int = 60):
+    def __init__(self, brokers: list, data_ex, store: Store, p: RotParams, poll_seconds: int = 60,
+                 stop_preco_real: bool = False):
+        # stop_preco_real: na testnet o livro é raso e o preço dá "agulhadas" falsas de 20%. Então o stop
+        # não fica na corretora: o robô vigia o preço do mercado REAL a cada minuto e vende se ele cair.
+        self.stop_preco_real = stop_preco_real
         self.brokers = {b.symbol: b for b in brokers}
         self.symbols = list(self.brokers)
         self.data_ex, self.store, self.p, self.poll = data_ex, store, p, poll_seconds
@@ -168,6 +173,11 @@ class RotacaoPortfolio:
 
     def _proteger(self, c: dict, s: str) -> None:
         b = self.brokers[s]
+        if self.stop_preco_real and self.p.stop and c["hold"].get(s, 0) > 0:
+            stop = c["entry"][s] * (1 - self.p.stop)
+            c.setdefault("stop_px", {})[s] = stop
+            self.log(f"[{s}] Proteção em {stop:.2f}, vigiada pelo robô com o preço do mercado real.")
+            return
         if not self.p.stop or c["hold"].get(s, 0) <= 0 or not getattr(b, "exchange_stop", False):
             return
         c.setdefault("stop_px", {})
@@ -191,17 +201,40 @@ class RotacaoPortfolio:
         out = {}
         for s, b in self.brokers.items():
             try:
-                out[s] = b.price()
+                # testnet: valor, stop e trava do mês olham o mercado REAL (a testnet tem agulhadas falsas)
+                out[s] = float(self.data_ex.fetch_ticker(s)["last"]) if self.stop_preco_real else b.price()
                 self.erros.pop(s, None)
             except Exception as e:  # noqa: BLE001
                 self.erros[s] = str(e)
         return out
+
+    def _migrar_stops_para_robo(self, c: dict) -> None:
+        """Testnet: tira da corretora os stops antigos (a proteção passa a ser vigiada pelo robô)."""
+        for s, oid in list(c["stops"].items()):
+            b = self.brokers.get(s)
+            try:
+                st = b.stop_status(oid)
+                if st["status"] == "closed" and st["filled"] > 0:
+                    c["stops"].pop(s, None)
+                    self._registrar_stop_executado(c, s, st)
+                    continue
+                if st["status"] not in ("canceled", "cancelled", "expired", "closed"):
+                    b.cancel_stop(oid)
+                c["stops"].pop(s, None)
+                if c["hold"].get(s, 0) > 0:
+                    c.setdefault("stop_px", {}).setdefault(s, c["entry"][s] * (1 - self.p.stop))
+                    self.log(f"[{s}] Proteção saiu da corretora de teste e passou a ser vigiada pelo robô, "
+                             f"em {c['stop_px'][s]:.2f}, com o preço do mercado real.")
+            except Exception as e:  # noqa: BLE001
+                self.erros[s] = f"tirando o stop antigo da corretora: {e}"
 
     def tick(self, agora: datetime | None = None) -> None:
         c = self.conta()
         precos = self._precos()
         if not precos:
             raise RuntimeError("; ".join(self.erros.values()) or "sem preços")
+        if self.stop_preco_real and c.get("stops"):
+            self._migrar_stops_para_robo(c)
 
         # stop de desastre: confere se a corretora já vendeu (na simulação, o robô vigia)
         for s in list(c["stops"]) + [s for s in self.symbols if c["hold"].get(s, 0) > 0]:
@@ -216,8 +249,11 @@ class RotacaoPortfolio:
                         self._registrar_stop_executado(c, s, st)
                 except Exception as e:  # noqa: BLE001
                     self.erros[s] = f"conferindo stop: {e}"
-            elif self.p.stop and precos[s] <= c["entry"].get(s, 0) * (1 - self.p.stop):
-                self._vender(c, s, c["hold"][s], precos[s], "stop de desastre")
+            elif self.p.stop:
+                nivel = (c.get("stop_px") or {}).get(s) or c["entry"].get(s, 0) * (1 - self.p.stop)
+                if precos[s] <= nivel:
+                    motivo = "stop de desastre (preço do mercado real)" if self.stop_preco_real else "stop de desastre"
+                    self._vender(c, s, c["hold"][s], precos[s], motivo)
 
         # posição sem stop na corretora: tenta de novo a cada 1 hora
         for s in self.symbols:

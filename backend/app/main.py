@@ -103,7 +103,11 @@ def get_bot():
                 store.conn.execute("DELETE FROM equity WHERE mode=?", (settings.mode,))
             store.set(f"estrategia_{settings.mode}", "rotacao")
             store.log(f"Estratégia trocada para Rotação inteligente. Capital do robô: {p.capital:.2f} USDT.")
-        _bot = RotacaoPortfolio(brokers, data_ex, store, p)
+        teste = settings.mode == "live" and settings.use_testnet
+        if teste:
+            for b in brokers:
+                b.exchange_stop = False  # testnet: o robô vigia o stop com o preço do mercado real
+        _bot = RotacaoPortfolio(brokers, data_ex, store, p, stop_preco_real=teste)
     if _bot is None:
         symbols = settings.symbols
         data_ex = make_exchange(settings.exchange)
