@@ -64,7 +64,8 @@ CLIMA = {"alta": "subindo", "baixa": "caindo", "lateral": "parado", "aquecendo":
 
 
 def montar_resumo(st, trades):
-    hoje = __import__("datetime").date.today().isoformat()
+    import datetime as dt
+    limite = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=24)).isoformat()
     linhas = [f"Robô {'LIGADO' if st['running'] else 'DESLIGADO'}{' (modo teste, dinheiro fictício)' if st.get('testnet') else ''}", ""]
     for c in st["coins"]:
         m, p = c.get("market") or {}, c.get("position")
@@ -80,7 +81,7 @@ def montar_resumo(st, trades):
     w = st.get("wallet") or {}
     if w.get("equity"):
         linhas += ["", f"Patrimônio: {w['equity']:,.2f} USDT"]
-    linhas.append(f"Operações hoje: {len([t for t in trades if str(t['time'])[:10] == hoje])}")
+    linhas.append(f"Operações nas últimas 24h: {len([t for t in trades if str(t['time']) >= limite])}")
     return "\n".join(linhas)
 
 if __name__ == "__main__":
