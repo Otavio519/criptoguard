@@ -130,3 +130,16 @@ def test_testnet_ignora_agulhada_e_respeita_mercado_real(tmp_path):
     rob.tick(DIA0.replace(hour=2))
     assert store.get("rot_paper")["hold"]["BTC/USDT"] == 0
     assert "mercado real" in store.rows("SELECT reason FROM trades ORDER BY id DESC LIMIT 1")[0]["reason"]
+
+
+def test_perda_de_agulhada_nao_conta_para_trava(tmp_path):
+    from app.db import now_iso
+    store = Store(tmp_path / "t.db")
+    ex = FakeEx()
+    brokers = [BrokerTeste(ex, s, store, 1000, 0.001) for s in ex.series]
+    rob = RotacaoPortfolio(brokers, ex, store, RotParams(capital=1000), stop_preco_real=True)
+    store.add_trade("paper", "venda", 70, 1, 0, -92.87, "stop de desastre na corretora", "BTC/USDT")
+    store.add_trade("paper", "venda", 70, 1, 0, -50, "perdeu a média de 200 dias", "BTC/USDT")
+    c = rob.conta(); c.update(mes=now_iso()[:7], inicio_mes=1000.0)
+    rob._descontar_agulhadas(c)
+    assert abs(c["inicio_mes"] - 907.13) < 0.01 and c["agulhadas_descontadas"]

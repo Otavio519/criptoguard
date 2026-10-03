@@ -228,6 +228,21 @@ class RotacaoPortfolio:
             except Exception as e:  # noqa: BLE001
                 self.erros[s] = f"tirando o stop antigo da corretora: {e}"
 
+    def _descontar_agulhadas(self, c: dict) -> None:
+        """Uma vez só: perdas de stops que a testnet disparou com agulhada falsa (antes da proteção passar a usar
+        o preço real) não contam para a trava do mês. Senão o robô travaria por causa de uma queda que não existiu."""
+        c["agulhadas_descontadas"] = True
+        mes = c.get("mes")
+        if not mes or c.get("inicio_mes") is None:
+            return
+        perdas = sum(-(t.get("pnl") or 0) for t in self.store.rows(
+            "SELECT pnl, time FROM trades WHERE mode=? AND reason=?", (self.mode, "stop de desastre na corretora"))
+            if str(t.get("time", ""))[:7] == mes and (t.get("pnl") or 0) < 0)
+        if perdas > 0:
+            c["inicio_mes"] -= perdas
+            self.log(f"A perda de {perdas:.2f} USDT causada pela queda falsa da Binance de teste não conta mais para a "
+                     f"trava do mês. Referência do mês ajustada para {c['inicio_mes']:.2f} USDT.")
+
     def tick(self, agora: datetime | None = None) -> None:
         c = self.conta()
         precos = self._precos()
@@ -235,6 +250,8 @@ class RotacaoPortfolio:
             raise RuntimeError("; ".join(self.erros.values()) or "sem preços")
         if self.stop_preco_real and c.get("stops"):
             self._migrar_stops_para_robo(c)
+        if self.stop_preco_real and not c.get("agulhadas_descontadas"):
+            self._descontar_agulhadas(c)
 
         # stop de desastre: confere se a corretora já vendeu (na simulação, o robô vigia)
         for s in list(c["stops"]) + [s for s in self.symbols if c["hold"].get(s, 0) > 0]:
