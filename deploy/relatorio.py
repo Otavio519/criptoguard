@@ -36,11 +36,16 @@ def enviar(topico, titulo, texto, prioridade="default", tags="chart_with_upwards
 def main():
     topico = sys.argv[1]
     resumo = "--resumo" in sys.argv
-    try:
-        st, trades, logs = api("/api/bot/status"), api("/api/bot/trades"), api("/api/bot/logs")
-    except Exception as e:  # noqa: BLE001
-        enviar(topico, "CriptoGuard fora do ar", f"O painel não respondeu no servidor: {e}", "high", "warning")
-        return
+    # o robô reinicia por uns segundos quando sai versão nova: tenta 4 vezes antes de dar o alarme
+    for tentativa in range(4):
+        try:
+            st, trades, logs = api("/api/bot/status"), api("/api/bot/trades"), api("/api/bot/logs")
+            break
+        except Exception as e:  # noqa: BLE001
+            if tentativa == 3:
+                enviar(topico, "CriptoGuard fora do ar", f"O painel não respondeu no servidor por 3 minutos: {e}", "high", "warning")
+                return
+            __import__("time").sleep(60)
     estado = json.loads(ESTADO.read_text()) if ESTADO.exists() else {"ult_trade": 0, "ult_erro": ""}
     novos = [t for t in trades if t["id"] > estado.get("ult_trade", 0)]
     for t in reversed(novos):

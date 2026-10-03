@@ -140,7 +140,7 @@ function CartaoMoeda({ m, preco, adxMin, look }: { m: Moeda; preco: number; adxM
           <dl>
             <div><dt>Quantidade</dt><dd>{pos.qty.toFixed(6)} {b}</dd></div>
             <div><dt>Comprou a</dt><dd>{usd(pos.entry_price)}</dd></div>
-            <div><dt>Proteção (stop) <Ajuda>Se o preço cair até aqui, a corretora vende sozinha. Isso limita a perda.</Ajuda></dt><dd className="c-neg">{usd(pos.stop)}</dd></div>
+            <div><dt>Proteção (stop) <Ajuda>Se o preço cair até aqui, a moeda é vendida sozinha. Isso limita a perda.</Ajuda></dt><dd className="c-neg">{usd(pos.stop)}</dd></div>
           </dl>
           <div className="trilho stop" aria-label="Distância até a proteção"><i style={{ width: `${barra}%` }} /></div>
           <small className="muted">{barra < 25 ? 'Perto da proteção.' : 'Distante da proteção.'} {pos.stop_order_id ? 'Ordem de proteção registrada na corretora.' : ''}</small>
@@ -267,7 +267,9 @@ export default function Painel({ cfg }: { cfg: Config | null }) {
         <ul>
           {rot ? <>
             <li><span className="ok-marca">✓</span><div><b>Sai quando a tendência vira</b><small>Todo dia às 21h o robô confere: se a moeda fechar abaixo da média de {rot.sma} dias, ele vende. Em 2022, ano de queda forte, isso deixou o robô em dólar o ano inteiro.</small></div></li>
-            <li><span className="ok-marca">✓</span><div><b>Stop de desastre na corretora</b><small>Cada compra tem uma ordem de venda automática {(rot.stop * 100).toFixed(0)}% abaixo do preço de entrada, registrada na corretora. Funciona mesmo se o servidor cair.</small></div></li>
+            {st?.testnet
+              ? <li><span className="ok-marca">✓</span><div><b>Stop de desastre vigiado pelo robô</b><small>No modo teste, o robô confere o preço do mercado real a cada minuto e vende se a moeda cair {(rot.stop * 100).toFixed(0)}% abaixo do preço de compra. Assim as quedas falsas da Binance de teste não disparam a venda. Na conta real, a ordem fica registrada na corretora.</small></div></li>
+              : <li><span className="ok-marca">✓</span><div><b>Stop de desastre na corretora</b><small>Cada compra tem uma ordem de venda automática {(rot.stop * 100).toFixed(0)}% abaixo do preço de entrada, registrada na corretora. Funciona mesmo se o servidor cair.</small></div></li>}
             <li><span className="ok-marca">✓</span><div><b>Compra menos quando o mercado está agitado</b><small>O tamanho de cada compra diminui quando a moeda balança demais. Nunca mais que {(100 / rot.topk).toFixed(0)}% do capital numa moeda só.</small></div></li>
           </> : <>
             <li><span className="ok-marca">✓</span><div><b>Proteção em cada compra</b><small>Toda compra já nasce com uma ordem de venda automática (stop) registrada na corretora. Funciona mesmo se o servidor cair.</small></div></li>
@@ -347,7 +349,9 @@ export default function Painel({ cfg }: { cfg: Config | null }) {
       </section>
 
       {pedido === 'pausar' && <Confirmar titulo="Pausar o robô?" botao="Pausar"
-        texto="Ele para de comprar e vender. Se tiver compra aberta, ela continua aberta e a proteção (stop) continua na corretora."
+        texto={st?.testnet
+          ? 'Ele para de comprar e vender. Se tiver compra aberta, ela continua aberta. No modo teste, a proteção (stop) também para enquanto o robô estiver pausado.'
+          : 'Ele para de comprar e vender. Se tiver compra aberta, ela continua aberta e a proteção (stop) continua na corretora.'}
         onOk={() => act(api.stop)} onCancel={() => setPedido(null)} />}
       {pedido === 'panico' && <Confirmar titulo="Vender tudo e desligar?" botao="Vender tudo agora" perigo
         texto="O robô vende na hora todas as compras abertas, pelo preço do momento, e desliga. Use só em emergência."
