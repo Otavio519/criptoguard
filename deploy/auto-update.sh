@@ -14,7 +14,11 @@ if [ -n "$P" ] && [ "$P" != "$(cat dados/diag_feito 2>/dev/null)" ]; then
 fi
 git fetch -q origin main || exit 0
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && exit 0
+# versão que o vigia desfez por ter quebrado o robô: não instala de novo até sair outra
+[ "$(git rev-parse origin/main)" = "$(cat dados/versao_bloqueada 2>/dev/null)" ] && exit 0
 echo "$(date -Is) atualizando para $(git rev-parse --short origin/main)" >> /var/log/criptoguard-update.log
+git rev-parse HEAD > dados/versao_anterior
+date -u +%Y-%m-%dT%H:%M:%S+00:00 > dados/ultima_atualizacao
 git reset -q --hard origin/main
 docker compose --profile https up -d --build >> /var/log/criptoguard-update.log 2>&1
 echo "$(date -Is) pronto" >> /var/log/criptoguard-update.log
