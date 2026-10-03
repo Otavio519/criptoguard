@@ -33,8 +33,9 @@ class Store:
                 self.conn.execute("ALTER TABLE trades ADD COLUMN symbol TEXT")
 
     def get(self, key: str, default=None):
-        row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
-        return json.loads(row["value"]) if row else default
+        with self.lock:  # a mesma conexão é usada pelo robô e pelo painel ao mesmo tempo
+            row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
+        return json.loads(row["value"]) if row and row["value"] is not None else default
 
     def set(self, key: str, value) -> None:
         with self.lock, self.conn:
@@ -59,4 +60,5 @@ class Store:
             self.conn.execute("INSERT INTO logs VALUES (?,?,?)", (now_iso(), level, msg))
 
     def rows(self, sql: str, args: tuple = ()) -> list[dict]:
-        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
+        with self.lock:
+            return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
