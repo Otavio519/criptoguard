@@ -60,6 +60,8 @@ def main():
         L.append(f"ERRO lendo o painel: {e}")
     L.append("== dentro do robô (corretora) ==")
     L.append(sh("docker exec -i criptoguard python - <<'PY'\n" + DENTRO + "\nPY"))
+    L.append("== vigia (últimos eventos) ==")
+    L.append(sh("tail -c 1500 /opt/criptoguard/dados/vigia.json"))
     L.append("== erros no log do container (últimas 24h) ==")
     L.append(sh("docker logs --since 24h criptoguard 2>&1 | grep -iE 'error|traceback|exception' | tail -15"))
     txt = "\n".join(L)

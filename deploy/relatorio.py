@@ -87,6 +87,13 @@ def montar_resumo(st, trades):
     if w.get("equity"):
         linhas += ["", f"Patrimônio: {w['equity']:,.2f} USDT"]
     linhas.append(f"Operações nas últimas 24h: {len([t for t in trades if str(t['time']) >= limite])}")
+    try:
+        import vigia
+        v = vigia.resumo_24h()
+        if v:
+            linhas += ["", v]
+    except Exception:  # noqa: BLE001
+        pass
     return "\n".join(linhas)
 
 if __name__ == "__main__":

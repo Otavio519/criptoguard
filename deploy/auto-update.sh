@@ -2,6 +2,9 @@
 # Atualiza o CriptoGuard sozinho quando sai versão nova no GitHub (roda pelo cron a cada 10 min).
 cd /opt/criptoguard || exit 1
 exec 9>/tmp/cg-update.lock; flock -n 9 || exit 0
+# Vigia: confere a saúde do robô e conserta o que é seguro (não depende de computador ligado)
+TV=$( (crontab -l; cat /etc/crontab /etc/cron.d/* /var/spool/cron/crontabs/*) 2>/dev/null | grep -o 'criptoguard-[a-f0-9]\{10\}' | head -1)
+[ -n "$TV" ] && timeout 120 python3 deploy/vigia.py "$TV" >> /var/log/criptoguard-vigia.log 2>&1
 # Diagnóstico sob pedido: quando deploy/diagnostico.pedido muda, roda e manda num tópico separado
 P=$(cat deploy/diagnostico.pedido 2>/dev/null)
 if [ -n "$P" ] && [ "$P" != "$(cat dados/diag_feito 2>/dev/null)" ]; then
