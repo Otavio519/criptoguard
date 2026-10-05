@@ -19,6 +19,12 @@ git fetch -q origin main || exit 0
 echo "$(date -Is) atualizando para $(git rev-parse --short origin/main)" >> /var/log/criptoguard-update.log
 git rev-parse HEAD > dados/versao_anterior
 date -u +%Y-%m-%dT%H:%M:%S+00:00 > dados/ultima_atualizacao
+MUDOU=$(git diff --name-only HEAD origin/main)
 git reset -q --hard origin/main
+# só scripts do servidor mudaram (pedido de diagnóstico, vigia, avisos): não precisa reiniciar o robô
+if [ -n "$MUDOU" ] && ! echo "$MUDOU" | grep -qv '^deploy/' && ! echo "$MUDOU" | grep -q '^deploy/Caddyfile'; then
+  echo "$(date -Is) só scripts do servidor, robô segue rodando" >> /var/log/criptoguard-update.log
+  exit 0
+fi
 docker compose --profile https up -d --build >> /var/log/criptoguard-update.log 2>&1
 echo "$(date -Is) pronto" >> /var/log/criptoguard-update.log
