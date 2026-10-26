@@ -143,3 +143,24 @@ def test_perda_de_agulhada_nao_conta_para_trava(tmp_path):
     c = rob.conta(); c.update(mes=now_iso()[:7], inicio_mes=1000.0)
     rob._descontar_agulhadas(c)
     assert abs(c["inicio_mes"] - 907.13) < 0.01 and c["agulhadas_descontadas"]
+
+
+def test_preco_que_nao_chega_nao_dispara_trava(tmp_path):
+    import pytest
+    store = Store(tmp_path / "t.db")
+    ex = FakeEx()
+    brokers = [BrokerTeste(ex, s, store, 1000, 0.001) for s in ex.series]
+    rob = RotacaoPortfolio(brokers, ex, store, RotParams(capital=1000), stop_preco_real=True)
+    rob.tick(DIA0.replace(hour=0, minute=10))
+    c = store.get("rot_paper")
+    assert c["hold"]["BTC/USDT"] > 0
+    real = ex.fetch_ticker
+    def falha(s):
+        if s == "BTC/USDT":
+            raise OSError("binance GET falhou")
+        return real(s)
+    ex.fetch_ticker = falha
+    with pytest.raises(RuntimeError):
+        rob.tick(DIA0.replace(hour=1))
+    c = store.get("rot_paper")
+    assert not c["travado"] and c["hold"]["BTC/USDT"] > 0  # não travou nem vendeu por falta de preço

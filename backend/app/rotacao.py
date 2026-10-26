@@ -280,9 +280,18 @@ class RotacaoPortfolio:
                 if not ult or (datetime.now(timezone.utc) - datetime.fromisoformat(ult)).total_seconds() > 3600:
                     self._proteger(c, s)
 
+        now = agora or datetime.now(timezone.utc)
+        # sem o preço de uma moeda que o robô tem, o patrimônio sairia errado (a moeda contaria como zero).
+        # Em 20/10/2026 isso disparou a trava do mês por engano. Então pula este ciclo e tenta no próximo.
+        faltando = [s for s in self.symbols if c["hold"].get(s, 0) > 0 and s not in precos]
+        if faltando:
+            self._publicar_posicoes(c, precos)
+            self.salvar(c)
+            raise RuntimeError("sem preço de " + ", ".join(faltando) + ": ciclo pulado. " +
+                               "; ".join(f"[{s}] {e}" for s, e in self.erros.items()))
+
         # patrimônio do robô
         equity = c["cash"] + sum(c["hold"].get(s, 0) * precos.get(s, 0) for s in self.symbols)
-        now = agora or datetime.now(timezone.utc)
         self.store.set(f"wallet_{self.mode}", {"quote": c["cash"], "assets": {s.split('/')[0]: c["hold"].get(s, 0) for s in self.symbols},
                                                "equity": equity, "prices": precos})
         if self._last_equity_at is None or (now - self._last_equity_at).total_seconds() >= 600:
@@ -293,12 +302,25 @@ class RotacaoPortfolio:
         mes = now.strftime("%Y-%m")
         if c.get("mes") != mes:
             c.update(mes=mes, inicio_mes=equity, travado=False)
+        if c.get("travado") and not c.get("trava_falsa_revista") and c.get("mes") == "2026-10":
+            # uma vez só: a trava de 20/10/2026 veio de um preço que não chegou, não de perda de verdade
+            c["trava_falsa_revista"] = True
+            if equity >= c["inicio_mes"] * (1 - self.p.trava):
+                c["travado"] = False
+                self.log(f"Trava do mês desfeita: ela foi acionada por engano em 20/10, quando o preço do BTC não chegou "
+                         f"e contou como zero. Patrimônio real {equity:.2f} USDT, "
+                         f"{(1 - equity / c['inicio_mes']) * 100:.1f}% abaixo do início do mês. O robô volta ao normal.", "warn")
         if self.p.trava and not c["travado"] and equity < c["inicio_mes"] * (1 - self.p.trava):
             c["travado"] = True
             self.log("Trava do mês: o robô perdeu 10% neste mês. Vendendo tudo e esperando o próximo mês.", "warn")
+        if self.p.trava and c["travado"]:
+            # vende o que sobrou (se uma venda falhar, tenta de novo no próximo ciclo)
             for s in self.symbols:
                 if c["hold"].get(s, 0) > 0 and s in precos:
-                    self._vender(c, s, c["hold"][s], precos[s], "trava de perda mensal")
+                    try:
+                        self._vender(c, s, c["hold"][s], precos[s], "trava de perda mensal")
+                    except Exception as e:  # noqa: BLE001
+                        self.erros[s] = f"vendendo pela trava do mês: {e}"
         self.store.set(f"guard_{self.mode}", {"month": mes, "start_equity": c["inicio_mes"], "locked": c["travado"]})
 
         # decisão diária, depois do fechamento do candle diário (00h05 UTC)
