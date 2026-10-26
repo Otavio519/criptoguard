@@ -164,3 +164,54 @@ def test_preco_que_nao_chega_nao_dispara_trava(tmp_path):
         rob.tick(DIA0.replace(hour=1))
     c = store.get("rot_paper")
     assert not c["travado"] and c["hold"]["BTC/USDT"] > 0  # não travou nem vendeu por falta de preço
+
+
+def test_grafico_que_nao_chega_nao_vende_e_tenta_de_novo(tmp_path):
+    store = Store(tmp_path / "t.db")
+    ex = FakeEx()
+    brokers = [PaperBroker(ex, s, store, 1000, 0.001) for s in ex.series]
+    rob = RotacaoPortfolio(brokers, ex, store, RotParams(capital=1000))
+    rob.tick(DIA0.replace(hour=0, minute=10))
+    btc = store.get("rot_paper")["hold"]["BTC/USDT"]
+    assert btc > 0
+    # 7 dias depois (dia de troca), o gráfico do BTC não chega
+    ex.hoje = DIA0 + timedelta(days=7)
+    real = ex.fetch_ohlcv
+    ex.fetch_ohlcv = lambda s, *a, **k: (_ for _ in ()).throw(OSError("timeout")) if s == "BTC/USDT" else real(s, *a, **k)
+    try:
+        rob.tick(ex.hoje.replace(hour=0, minute=10))
+    except RuntimeError:
+        pass
+    c = store.get("rot_paper")
+    assert c["hold"]["BTC/USDT"] == btc            # não vendeu por engano
+    assert c["ultimo_dia"] != ex.hoje.date().isoformat()  # vai tentar de novo
+    # o gráfico volta: decide normalmente
+    ex.fetch_ohlcv = real
+    rob.erros.clear()
+    rob.tick(ex.hoje.replace(hour=0, minute=11))
+    assert store.get("rot_paper")["ultimo_dia"] == ex.hoje.date().isoformat()
+
+
+def test_ordem_que_falha_no_meio_da_troca_completa_depois(tmp_path):
+    store = Store(tmp_path / "t.db")
+    ex = FakeEx()
+
+    class Falha1x(PaperBroker):
+        falhou = False
+        def buy(self, *a, **k):
+            if not Falha1x.falhou:
+                Falha1x.falhou = True
+                raise OSError("corretora fora do ar")
+            return super().buy(*a, **k)
+
+    brokers = [Falha1x(ex, s, store, 1000, 0.001) for s in ex.series]
+    rob = RotacaoPortfolio(brokers, ex, store, RotParams(capital=1000))
+    try:
+        rob.tick(DIA0.replace(hour=0, minute=10))
+    except OSError:
+        pass
+    c = store.get("rot_paper")
+    assert c["hold"].get("BTC/USDT", 0) == 0 and not c.get("ultimo_rebal")  # troca não marcada como feita
+    rob.tick(DIA0.replace(hour=0, minute=11))
+    c = store.get("rot_paper")
+    assert c["hold"]["BTC/USDT"] > 0 and c["ultimo_rebal"] == DIA0.date().isoformat()  # completou

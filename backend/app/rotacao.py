@@ -151,6 +151,7 @@ class RotacaoPortfolio:
             c["hold"][s] = 0.0
         self.store.add_trade(self.mode, "venda", avg, filled, fee, pnl, motivo, s)
         self.log(f"[{s}] VENDEU {filled:.6f} a {avg:.2f} ({motivo}). Resultado {pnl:+.2f} USDT.")
+        self.salvar(c)  # grava na hora: se o passo seguinte falhar, a venda já está registrada
         if c["hold"][s] > 0:
             self._proteger(c, s)
 
@@ -169,6 +170,7 @@ class RotacaoPortfolio:
         c["cash"] -= filled * avg + fee
         self.store.add_trade(self.mode, "compra", avg, filled, fee, None, motivo, s)
         self.log(f"[{s}] COMPROU {filled:.6f} a {avg:.2f} ({motivo}).")
+        self.salvar(c)  # grava na hora: se o passo seguinte falhar, a compra já está registrada
         self._proteger(c, s)
 
     def _proteger(self, c: dict, s: str) -> None:
@@ -326,23 +328,28 @@ class RotacaoPortfolio:
         # decisão diária, depois do fechamento do candle diário (00h05 UTC)
         hoje = now.date().isoformat()
         if c.get("ultimo_dia") != hoje and now.hour * 60 + now.minute >= 5:
-            self._decidir(c, precos, now)
-            c["ultimo_dia"] = hoje
+            if self._decidir(c, precos, now):
+                c["ultimo_dia"] = hoje
         self._publicar_posicoes(c, precos)
         self.salvar(c)
         if self.erros:
             raise RuntimeError("; ".join(f"[{s}] {e}" for s, e in self.erros.items()))
 
-    def _decidir(self, c: dict, precos: dict, now: datetime) -> None:
+    def _decidir(self, c: dict, precos: dict, now: datetime) -> bool:
+        """Devolve False (e não opera) se faltar algum dado. O robô tenta de novo no próximo minuto."""
         inds = {}
+        ontem = (now - timedelta(days=1)).date()
         for s in self.symbols:
             try:
                 df = fetch_recent(self.data_ex, s, "1d", self.p.sma + 40)
                 df = df[df.index < pd.Timestamp(now.date(), tz="UTC")]  # só candles fechados
+                if len(df) and df.index[-1].date() < ontem:
+                    raise RuntimeError(f"gráfico desatualizado (último dia {df.index[-1].date()})")
                 inds[s] = indicadores(df["close"], self.p)
             except Exception as e:  # noqa: BLE001
-                self.erros[s] = f"lendo o gráfico diário: {e}"
-                inds[s] = {"pronto": False}
+                # sem o gráfico de uma moeda, ela pareceria "fraca" e seria vendida por engano. Não decide hoje ainda.
+                self.erros[s] = f"lendo o gráfico diário (decisão adiada): {e}"
+                return False
         for s, i in inds.items():
             self.store.set(f"market_{self.mode}_{slug(s)}", {
                 "regime": regime(i), "candle": i.get("candle", ""), "price": precos.get(s),
@@ -358,11 +365,10 @@ class RotacaoPortfolio:
                 self._vender(c, s, c["hold"][s], precos[s], "perdeu a média de 200 dias")
 
         if not rebal:
-            return
+            return True
         if c.get("travado"):
             self.log("Dia de escolher moedas, mas a trava do mês está ativa. Fica em dólar até o mês que vem.")
-            return
-        c["ultimo_rebal"] = now.date().isoformat()
+            return True
         pesos = escolher(inds, self.p)
         escolhidas = [f"{s.split('/')[0]} {w * 100:.0f}%" for s, w in pesos.items() if w > 0]
         self.log("Escolha da semana: " + (", ".join(escolhidas) if escolhidas else "nenhuma moeda forte. Fica em dólar."))
@@ -384,6 +390,9 @@ class RotacaoPortfolio:
             if alvo_valor > atual * (1 + self.p.folga):
                 self._comprar(c, s, alvo_valor - atual, precos[s],
                               f"rotação: entre as mais fortes ({inds[s]['mom'] * 100:+.0f}% em {self.p.look} dias)")
+        # só marca a troca como feita no fim: se uma ordem falhar no meio, o robô completa no próximo minuto
+        c["ultimo_rebal"] = now.date().isoformat()
+        return True
 
     def _publicar_posicoes(self, c: dict, precos: dict) -> None:
         for s in self.symbols:
