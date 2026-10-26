@@ -7,7 +7,7 @@ no celular pelo ntfy. Consertos automáticos:
 - atualização nova que quebrou o robô: volta para a versão anterior e bloqueia a versão ruim
 - disco cheio: limpa arquivos velhos do Docker
 Nunca compra, vende, liga o robô ou mexe em chaves."""
-import json, shutil, subprocess, sys, time
+import json, shutil, subprocess, sys, time, urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -146,8 +146,22 @@ class Vigia:
             elif velhas:
                 self.avisar("decisao", 20, "CriptoGuard: decisão do dia não rodou",
                             f"O robô não leu o gráfico de hoje para {', '.join(velhas)}.")
-        # 7) perto da trava do mês
+        # 7) trava do mês acionada: confere com o preço real se a perda existe mesmo
         g, w = st.get("guard") or {}, st.get("wallet") or {}
+        if g.get("locked") and g.get("start_equity"):
+            real = conferir_patrimonio(w)
+            if real is None:
+                pass
+            elif 1 - real / g["start_equity"] < 0.09:
+                self.avisar(f"trava_suspeita_{g.get('month')}", 6, "CriptoGuard: trava do mês suspeita",
+                            f"A trava do mês está ativa, mas pelo preço real o patrimônio é {real:.2f} USDT, "
+                            f"só {(1 - real / g['start_equity']) * 100:.1f}% abaixo do início do mês. "
+                            "Pode ter sido acionada por engano. Preciso de ajuda para olhar.")
+            else:
+                self.avisar(f"trava_ativa_{g.get('month')}", 24 * 31, "CriptoGuard: trava do mês acionada",
+                            f"O robô perdeu {(1 - real / g['start_equity']) * 100:.1f}% no mês e ficou em dólar. "
+                            "Ele volta a operar no mês que vem.", "default", "pause_button")
+        # 8) perto da trava do mês
         if g.get("start_equity") and w.get("equity") and not g.get("locked"):
             queda = 1 - w["equity"] / g["start_equity"]
             if queda >= 0.07:
@@ -160,6 +174,19 @@ class Vigia:
         self.v["eventos"] = [e for e in self.v["eventos"] if e["t"] >= corte][-50:]
         self.v["ultima_ronda"] = AGORA.isoformat(timespec="minutes")
         ARQ.write_text(json.dumps(self.v))
+
+
+def conferir_patrimonio(w):
+    """Patrimônio do robô recalculado aqui, com o preço do mercado real da Binance (sem depender do robô)."""
+    try:
+        total = float(w.get("quote") or 0)
+        for moeda, qtd in (w.get("assets") or {}).items():
+            if qtd:
+                with urllib.request.urlopen(f"https://api.binance.com/api/v3/ticker/price?symbol={moeda}USDT", timeout=15) as resp:
+                    total += float(qtd) * float(json.load(resp)["price"])
+        return total
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def resumo_24h():
